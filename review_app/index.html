@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Bellhaven ownership review</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+:root{--bg:#f6f5f1;--card:#fff;--ink:#222;--mut:#6b6b63;--line:#e3e0d6;--ok:#1f7a4d;--bad:#b3261e;--warn:#9a6700;--acc:#2e5d50}
+*{box-sizing:border-box}body{margin:0;font:14px/1.45 -apple-system,Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--ink)}
+header{background:var(--acc);color:#fff;padding:14px 24px;display:flex;gap:18px;align-items:center;flex-wrap:wrap}
+header h1{font-size:18px;margin:0;font-weight:600}header .meta{opacity:.85;font-size:12px}
+main{max-width:1100px;margin:0 auto;padding:18px 24px 60px}
+.bar{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;align-items:center}
+.chip{border:1px solid var(--line);background:var(--card);border-radius:999px;padding:4px 12px;cursor:pointer;font-size:12px}
+.chip.on{background:var(--acc);color:#fff;border-color:var(--acc)}
+button{font:inherit;border-radius:6px;border:1px solid var(--line);background:#fff;padding:6px 14px;cursor:pointer}
+button.ok{background:var(--ok);color:#fff;border-color:var(--ok)}button.no{background:#fff;color:var(--bad);border-color:var(--bad)}
+button:disabled{opacity:.5;cursor:default}
+.card{background:var(--card);border:1px solid var(--line);border-radius:8px;margin-bottom:12px;padding:14px 16px}
+.top{display:flex;gap:10px;align-items:flex-start;justify-content:space-between}
+.title{font-weight:600}.tag{font-size:11px;border-radius:4px;padding:2px 7px;margin-right:8px;color:#fff;vertical-align:1px}
+.CHOW{background:#7b3fa0}.FIX{background:#2a6fb0}.CREATE{background:#1f7a4d}.DUPLICATE{background:#8a6a00}.REMOVED{background:#b3261e}.DIVEST{background:#c2410c}.REVIEW{background:#b3261e}
+.st{font-size:11px;color:var(--mut)}.st.applied{color:var(--ok);font-weight:600}.st.rejected{color:var(--bad)}.st.failed{color:var(--bad);font-weight:600}
+table{border-collapse:collapse;margin:10px 0;font-size:13px}td,th{padding:3px 12px 3px 0;text-align:left;vertical-align:top}th{color:var(--mut);font-weight:500}
+.from{color:var(--bad);text-decoration:line-through}.to{color:var(--ok);font-weight:600}
+.why{color:var(--mut);font-size:13px;margin:4px 0}.sop{background:#fff8e6;border-left:3px solid var(--warn);padding:6px 10px;font-size:13px;margin:8px 0}
+details{margin-top:8px}summary{cursor:pointer;color:var(--acc);font-size:13px}pre{background:#f3f1ea;padding:10px;border-radius:6px;overflow:auto;font-size:12px}
+.err{color:var(--bad);font-size:13px;margin-top:6px}.actions{display:flex;gap:8px;flex-shrink:0}
+</style></head><body>
+<header><h1>Bellhaven ownership review</h1><span class="meta" id="meta"></span>
+<span style="flex:1"></span><button id="run">Re-run pipeline</button></header>
+<main><div class="bar" id="statusbar"></div><div class="bar" id="kindbar"></div>
+<div class="bar"><button class="ok" id="bulk" style="display:none"></button></div><div id="list"></div></main>
+<script>
+let status='pending',kind='',items=[];
+const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+async function api(p,o){const r=await fetch(p,o);if(!r.ok)throw new Error((await r.json()).detail||r.status);return r.json()}
+async function load(){
+  const st=await api('/api/stats');const by=st.by_status;
+  document.getElementById('meta').textContent=st.last_run?`last run #${st.last_run.id} · ${st.last_run.ts} · website ${st.last_run.web_count} · CRM ${st.last_run.crm_count}`:'';
+  document.getElementById('statusbar').innerHTML=['pending','applied','rejected','failed','obsolete','']
+    .map(s=>`<span class="chip ${s===status?'on':''}" onclick="status='${s}';load()">${s||'all'} ${s?(by[s]||0):''}</span>`).join('');
+  items=await api(`/api/proposals?status=${status}&kind=${kind}`);
+  document.getElementById('kindbar').innerHTML=['',...['CHOW','FIX','CREATE','DUPLICATE','REMOVED','DIVEST','REVIEW']].map(k=>`<span class="chip ${k===kind?'on':''}" onclick="kind='${k}';load()">${k||'all kinds'}</span>`).join('');
+  // bulk approval only for low/medium risk; ownership changes (re-parent, CHOW, divest, removal) stay one-by-one
+  const b=document.getElementById('bulk');const pend=items.filter(i=>i.status==='pending'&&i.severity!=='high');
+  b.style.display=status==='pending'&&pend.length?'':'none';b.textContent=`Approve ${pend.length} low/medium-risk shown`;b.onclick=()=>bulk(pend);
+  document.getElementById('list').innerHTML=items.map(card).join('')||'<p>Nothing here.</p>';
+}
+function diff(a){
+  if(a.op==='create')return `<tr><th colspan=3>CREATE new account</th></tr>`+Object.entries(a.fields).filter(([k])=>k!=='note').map(([k,v])=>`<tr><td>${k}</td><td></td><td class=to>${esc(v)}</td></tr>`).join('');
+  return `<tr><th colspan=3>UPDATE ${esc(a.account_id)}</th></tr>`+Object.entries(a.fields).map(([k,v])=>{
+    const nv=String(v).startsWith('$created')?'(id of the new account above)':k==='parent_id'?'Bellhaven Senior Living':v;
+    return `<tr><td>${k}</td><td class=from>${esc(a.before?.[k]??'')}</td><td class=to>${esc(nv)}</td></tr>`}).join('');
+}
+function card(p){
+  const e=p.evidence||{},sop=e.sop;
+  return `<div class="card"><div class="top"><div><span class="tag ${p.kind}">${p.kind}</span><span class="title">${esc(p.title)}</span>
+   <span class="st ${p.status}"> · ${p.status}${p.decided_by?' by '+esc(p.decided_by):''}</span></div>
+   <div class="actions">${p.status==='pending'||p.status==='failed'?`<button class="ok" onclick="act('${p.fingerprint}','approve',this)">Approve</button><button class="no" onclick="act('${p.fingerprint}','reject',this)">Reject</button>`:''}</div></div>
+   <table>${p.actions.map(diff).join('')}</table>
+   ${e.why_it_matters?`<div class="why"><b>Why it matters:</b> ${esc(e.why_it_matters)}</div>`:''}
+   ${(e.reasons||[]).length?`<div class="why"><b>Evidence:</b> ${e.reasons.map(esc).join('; ')}</div>`:''}
+   ${e.survivor_chosen_because?`<div class="why"><b>Survivor kept because:</b> ${e.survivor_chosen_because.map(esc).join('; ')}</div>`:''}
+   ${sop?`<div class="sop"><b>SOP check</b> · revenue $${(sop.revenue||0).toLocaleString()} · AR $${(sop.outstanding_ar||0).toLocaleString()}<br>${esc(sop.rule)}</div>`:''}
+   ${p.error?`<div class="err">${esc(p.error)}</div>`:''}
+   <details><summary>Full evidence (website vs CRM)</summary><pre>${esc(JSON.stringify(e,null,2))}</pre></details></div>`;
+}
+function reviewer(){let n='';try{n=localStorage.getItem('reviewer')||''}catch(e){}
+  if(!n){n=(prompt('Your name (recorded with each decision):')||'').trim()||'reviewer';try{localStorage.setItem('reviewer',n)}catch(e){}}return n}
+async function act(fp,what,btn){btn.disabled=true;try{const r=await api(`/api/proposals/${fp}/${what}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({reviewer:reviewer()})});
+  if(r.status==='failed')alert('Write failed (nothing partial is lost, retry is safe):\n'+r.error)}catch(e){alert(e.message)}load()}
+async function bulk(list){if(!confirm(`Approve and write ${list.length} changes to the CRM?`))return;for(const p of list)await act(p.fingerprint,'approve',{});}
+document.getElementById('run').onclick=async()=>{const b=document.getElementById('run');b.disabled=true;b.textContent='Running…';try{const r=await api('/api/run',{method:'POST'});alert(JSON.stringify(r))}catch(e){alert(e.message)}b.disabled=false;b.textContent='Re-run pipeline';load()};
+load();
+</script></body></html>

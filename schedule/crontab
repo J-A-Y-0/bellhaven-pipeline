@@ -1,0 +1,4 @@
+# Daily proposal run, 6:17 am local time, on the machine that hosts the review app.
+# It must share data/pipeline.db with the review app: that database holds every decision, so a shared store
+# is what keeps approved and rejected items from being re-proposed. The run is read-only against the CRM.
+17 6 * * * cd /path/to/bellhaven-pipeline && /usr/bin/env python3 -m pipeline.run >> data/cron.log 2>&1

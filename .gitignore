@@ -1,0 +1,9 @@
+.env
+data/
+__pycache__/
+*.pyc
+.pytest_cache/
+# local only: form text, interview notes, decision log
+SUBMISSION.md
+WALKTHROUGH.md
+DECISIONS.md
